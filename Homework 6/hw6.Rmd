@@ -1,0 +1,98 @@
+---
+title: "hw6"
+output:
+word_document: default
+pdf_document: default
+date: "2023-02-20"
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE)
+#install.packages('pls')
+library('pls')
+setwd('C:\\Users\\anoop\\OneDrive\\Documents\\GA Analytics\\ISYE6501\\Homework 6')
+```
+
+
+##Question 9.1
+
+```{r}
+set.seed(1)
+
+#creating dataframe of our new city's data so our Linear Regression Model can
+#predict it's crime value
+new_city <- data.frame(
+M = 14.0, #percentage of males aged 14–24 in total state population
+So = 0, #indicator variable for a southern state
+Ed = 10.0, # mean years of schooling of the population aged 25 years or over
+Po1 = 12.0, #per capita expenditure on police protection in 1960
+Po2 = 15.5, #per capita expenditure on police protection in 1959
+LF = 0.640, #labour force participation rate of civilian urban males in the age-group 14-24
+M.F = 94.0, #number of males per 100 females
+Pop = 150, #state population in 1960 in hundred thousands
+NW = 1.1, #percentage of nonwhites in the population
+U1 = 0.120, #unemployment rate of urban males 14–24
+U2 = 3.6, #unemployment rate of urban males 35–39
+Wealth = 3200, #wealth: median value of transferable assets or family income
+Ineq = 20.1, #income inequality: percentage of families earning below half the mdian income
+Prob = 0.04, #probability of imprisonment: ratio of number of commitments to number of offenses
+Time = 39.0) #average time in months served by offenders in state prisons before their first release
+#Crime: crime rate: number of offenses per 100,000 population in 1960
+
+data2 <- read.delim2('uscrime.txt')
+data2 <- as.data.frame(lapply(data2, as.numeric))
+
+data.pca <- prcomp(data2[,1:15], scale = TRUE)
+summary(data.pca)
+
+#Taking Standard Deviation to find Variance
+eigs <- data.pca$sdev^2
+plot(eigs/sum(eigs), main = 'Variance per PCA', ylim = c(0,1), xlab = 'Variance', ylab = 'PCA #',
+     type = 'o')
+axis(side = 2, at = seq(0,1,.1))
+axis(side = 1, at = 1:15)
+
+
+```
+
+Looking at the summary of the PCA analysis on US Crime data set, we can see that the standard deviation from predictors PC1 to  PC15 range from 2.45 to .067. For our linear regression model, we should use predictors that have the highest variance. PC1 to PC4 have variances of 1 or higher; we can use these predictors to build a linear model. 
+
+
+```{r}
+pca <- data.frame(cbind(data.pca$x[,1:4], data2$Crime))
+names(pca) <- c('PC1','PC2','PC3','PC4','Crime')
+model_pca <- lm(Crime~., pca)
+summary(model_pca)
+model_pca$coefficients
+
+#We need to un-rotate the coefficients because we needed to rotate them to help select
+#the best predictors for our model. We can do this by taking the rotated PCA data and multiplying 
+#the non-intercept model coefficients (matrix multiplication) then dividing by the scale
+unrotate_coeff <- (data.pca$rotation[,1:4] %*% model_pca$coefficients[2:5])/data.pca$scale
+
+# we need to also adjust the intercept based on the PCA's Center
+intercept <- model_pca$coefficients[1] - sum(unrotate_coeff * data.pca$center)
+
+
+#Sum Product of New Unrotated Cofficients with New City data values to Predict the Crime Value
+Crime_pred = 0
+i=1
+for (i in length(new_city))
+{
+  Crime_pred = Crime_pred + unrotate_coeff[i,1]%*% new_city[,i]
+}
+Crime_pred <- Crime_pred + intercept
+Crime_pred #1630.095 
+```
+The predicted Crime Value is 1630.095, which is a value that is on the higher end of the Crime data set. Lets compare the previous model from hw5 with the PCA model in hw6.
+
+The model in hw5 was: lm(formula = Crime ~ Po2 + M.F + Wealth + Ineq). This yielded an equation of: y = -5552.32.31 + 113.99(Po2) + 32.52(M.F) + 0.17(Wealth) + 74.8228(Ineq) with an adjusted R-squared value of 0.6185
+
+The predicted value of this model ended up being 1320.324.
+
+The model (PCA based) in hw6 is: lm(formula = Crime ~ 1666 - 16.9307630(M) + 21.3436771(So) +  12.8297238(Ed) + 21.3521593(Po1) + 23.0883154(Po2) - 346.5657125(LF) - 8.2930969(M.F) + 1.0462155(Pop) + 1.5009941(NW) - 1509.9345216(U1) + 1.6883674(U2) + 0.0400119(Wealth) - 6.9020218(Ineq) + 144.9492678(Prob) - 0.9330765(Time)) with an adjusted R-squared value of 0.2433
+
+The predicted value of this model ended up being 1630.095.
+
+The PCA Model predicted a value higher than the previous model, and has much lower adjust R-squared value. The PCA model needs to be tuned as it has a poor adjusted R-squared value. The PCA model could be poor with the low amount of data that its built upon, and could potentially thrive with a higher volume of data. 
