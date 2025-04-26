@@ -1,0 +1,147 @@
+---
+title: "hw10"
+output:
+  word_document: default
+  pdf_document: default
+date: "2023-03-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+setwd('C:\\Users\\anoop\\OneDrive\\Documents\\GA Analytics\\ISYE6501\\Homework 10')
+library(magrittr)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(caret)
+library(DAAG)
+library(rpart)
+library(randomForest)
+library(data.table)
+library(MASS)
+library(kknn)
+library(mice)
+```
+## Question 14.1
+The breast cancer data set breast-cancer-wisconsin.data.txt from
+http://archive.ics.uci.edu/ml/machine-learning-databases/breast-cancer-wisconsin/ (description at
+http://archive.ics.uci.edu/ml/datasets/Breast+Cancer+Wisconsin+%28Original%29 ) has missing values.
+1. Use the mean/mode imputation method to impute values for the missing data.
+2. Use regression to impute values for the missing data.
+3. Use regression with perturbation to impute values for the missing data.
+4. (Optional) Compare the results and quality of classification models (e.g., SVM, KNN) build using
+(1) the data sets from questions 1,2,3;
+(2) the data that remains after data points with missing values are removed; and 
+(3) the data set when a binary variable is introduced to indicate missing values.
+
+```{r cars}
+data_cancer <- read.csv('breast-cancer-wisconsin.data.txt', header = FALSE, na.strings = "?")
+#data_cancer <- lapply(data_cancer,as.numeric)
+
+# Adding column names to dataset - names comes from website in the homework prompt
+colnames(data_cancer) <- c(
+'id',
+'Clump_Thickness',
+'Uniformity_of_Cell_Size',
+'Uniformity_of_Cell_Shape',
+'Marginal_Adhesion',
+'Single_Epithelial_Cell_Size',
+'Bare_Nuclei',
+'Bland_Chromatin',
+'Normal_Nucleoli',
+'Mitoses',
+'Class'
+)
+
+#Changing class (outcome data) from 2 and 4 to 0 and 1 with 0 being 'benign' and 4 being 'malignant'
+data_cancer$Class <- as.factor(data_cancer$Class)
+levels(data_cancer$Class) = c(0,1)
+
+
+#There is missing data in this data set - lets find the rows with any missing data
+summary(data_cancer)
+
+cat('Percentage of NAs in dataset: ', nrow(data_cancer[is.na(data_cancer$Bare_Nuclei),]) / nrow(data_cancer) * 100)
+```
+Looking the Summary of the dataset, we can see that the Bare_Nuclei column has 16 NAs. The other columns do not seem to have any values missing nor do any of the ranges look off from what the data is described in the site (http://archive.ics.uci.edu/ml/datasets/Breast+Cancer+Wisconsin+%28Original%29).
+
+We can use mean imputation to enter the mean value for any NAs because the number of NAs to row values is under 5% (2.28%). 
+
+
+```{r meanMode Imputation}
+# We replaced NAs in Bare_Nuclei with the remaining mean in Bare_Nuclei <- we created a new data set for mean imputation
+data_cancer.mean <- data_cancer
+
+data_cancer.mean$Bare_Nuclei[is.na(data_cancer.mean$Bare_Nuclei)] <- mean(data_cancer.mean$Bare_Nuclei, na.rm = TRUE) 
+
+# We replaced NAs in Bare_Nuclei with the remaining mode in Bare_Nuclei <- we created a new data set for mode imputation as well 
+# Mode function is found online since R doesn't have it local? :/
+find_mode <- function(x) {
+  u <- unique(x)
+  tab <- tabulate(match(x, u))
+  u[tab == max(tab)]
+}
+
+data_cancer.mode <- data_cancer
+
+data_cancer.mode$Bare_Nuclei[is.na(data_cancer.mode$Bare_Nuclei)] <- find_mode(data_cancer.mode$Bare_Nuclei) 
+
+```
+
+While both mean and mode imputation would work for imputing values, there would times where one method is better than another. In this situation, the mean is ~3.5 and the mode is 1 for imputed values for Bare Nuclei. The data scales from 1 to 10 with a value of 1 being no Bare Nuclei and a value of 10 being the max Bare Nuclei. Considering we are using this imputed data to help predict the type of cancer (benign or malignant), we would want to find the Bare Nuclei value that would better predict the type of cancer even as a False Positive. We would prefer to diagnose someone with malignant cancer early on and have the prediction be false than to not diagnose someone with malignant cancer and have the person actually have malignant cancer. In order to find the best method of imputation, we can use the data without missing values to see if there is a significance between low and high Nuclei compared to the type of cancer. 
+
+
+##Regression Imputation
+```{r regression Imputation}
+set.seed(1)
+
+newdata<-data_cancer
+# Takes rows without NAs and columns other than id and Class
+data_removeNArows <- newdata[-which(is.na(newdata$Bare_Nuclei), arr.ind=TRUE),2:10]
+
+model <- lm(Bare_Nuclei~Clump_Thickness+Uniformity_of_Cell_Size+Uniformity_of_Cell_Shape+Marginal_Adhesion+Single_Epithelial_Cell_Size+Bland_Chromatin+Normal_Nucleoli+Mitoses,data=data_removeNArows)
+summary(model)
+
+
+#Using a linear regression model with predictors without NAs, we can fill in NAs of any predictors with NAs. 
+set.seed(1)
+# Set up repeated k-fold cross-validation
+train.control <- trainControl(method = "cv", number = 10)
+# Train the model so we can predict the missing predictor values using other predictors. 
+train.model <- train(Bare_Nuclei ~., data = data_removeNArows ,
+                    method = "leapBackward", 
+                    tuneGrid = data.frame(nvmax = 1:8),
+                    trControl = train.control
+                    )
+train.model$results
+train.model$bestTune
+
+data_cancer.regression <- data_cancer
+predictNAs <- predict(train.model, newdata = data_cancer[which(is.na(newdata$Bare_Nuclei), arr.ind=TRUE),])
+
+# Impute the NAs using predicted values
+data_cancer.regression[which(is.na(newdata$Bare_Nuclei)),]$Bare_Nuclei <- predictNAs
+data_cancer.regression[which(is.na(newdata$Bare_Nuclei)),]
+```
+
+##Regression with Perturbation
+```{r pert}
+#using MICE to impute missing values using perturbation
+imp_perturbation <- mice(data_cancer, method = 'norm.nob', m=1)
+imp_perturbation
+
+#imputing missing values using perturbation 
+data_cancer.perturbation <- complete(imp_perturbation)
+#We need to apply absolute value on imputed values since range is from 0 to 10
+data_cancer.perturbation$Bare_Nuclei <- abs(data_cancer.perturbation$Bare_Nuclei)
+data_cancer.perturbation[which(is.na(newdata$Bare_Nuclei)),]
+```
+Comparing the regression imputation data to the perturbation imputation data for Bare Nuclei, both have imputations ranging from 0 to 10 (for perturbation, some of the values appear to be negative and I took the absolute value in order to fit the imputation in the range). These imputations are different from the mean and mode imputations as they have variety, and are depended on the other predictors for the values. For this data set, I would choose to use the linear regression imputation over the other methods used as the variety of imputation values and reasonableness of imputing values (no values outside of 0 to 10) make the linear regression imputation most fitting with the rest of the Bare Nuclei data points. The regression and perturbation imputed values came out with decimals, while the other values had integer values; while the data description mentioned the range was between 0 to 10, there wasn't clarity on if values could have decimals. These imputed values stick out like sore thumbs in the dataset, but should work for prediction purposes. 
+
+
+##Question 15.1
+Describe a situation or problem from your job, everyday life, current events, etc., for which optimization
+would be appropriate. What data would you need?
+
+During this semester, I started to go back to the gym, and I've been taking my health more seriously than the last couple of years of my life. While going to the gym is great, the real improvement of one's body comes from having ample rest, and eating properly. My goal is to gain muscle, and lose fat at the same time. While this is fairly difficult, usually beginners (me) can follow a process called 'body re-composition'. In order to do so, one has to be an calorie deficit and maintain at least 1g protein per lb of body weight. This is fairly difficult as this limits many dietary choices, however they are still many choices to choice from. One way I can use optimization is to find the cheapest methods of weekly meals while achieving my diet constraints. Other than the number of calories, and amount of protein I need to eat a day, constraints such as no processed food, diversified meal choices, and a minimum amount fats and carbs would be key factors in optimizing cost. I would need data on food statistics (amount of protein, fats, carbs, $ etc), which can be found online or through calorie tracking apps. 
