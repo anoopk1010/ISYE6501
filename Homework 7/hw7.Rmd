@@ -1,0 +1,177 @@
+---
+title: "hw7"
+output:
+  word_document: default
+  pdf_document: default
+date: "2023-02-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+setwd('C:\\Users\\anoop\\OneDrive\\Documents\\GA Analytics\\ISYE6501\\Homework 7')
+#install.packages('tree')
+library('tree')
+#install.packages('rpart')
+library('rpart')
+#install.packages("randomForest")
+library('randomForest')
+#install.packages('caret')
+library('caret')
+```
+
+## Question 10.1
+
+Using the same crime data set uscrime.txt as in Questions 8.2 and 9.1, find the best model you can using   
+(a) a regression tree model, and  (b) 
+a random forest model.    
+In R, you can use the tree package or the rpart package, and the randomForest package.  For each model, 
+describe one or two qualitative takeaways you get from analyzing the results (i.e., don’t just stop when 
+you have a good model, but interpret it too). 
+
+```{r Tree}
+data2 <- read.delim2('uscrime.txt')
+data2 <- as.data.frame(lapply(data2, as.numeric))
+
+set.seed(2)
+tree_model <- tree(Crime ~ ., data= data2)
+
+plot(tree_model)
+text(tree_model)
+title('US Crime Regression Tree Model')
+
+summary(tree_model)
+```
+Using the 'Tree' library, we are able to generate a regression tree model. Without any pruning or CV, we are able to generate a tree with 7 terminal nodes or leaves, and also a unique set of criteria per split. Out of the 16 variables available, the model uses Po1(per capita expenditure on police protection in 1960), Pop (state population in 1960 in hundred thousands), LF(labour force participation rate of civilian urban males in the age-group 14-24), and NW(percentage of nonwhites in the population) as its 4 variables. Both Po1 and Pop are used twice in splits. The 'Residual mean deviance' is similar to the mean squared error for other models, and our 'Residual mean deviance' is 47390. We want to minimize error, so lets see if tuning our model can return better results. 
+
+```{r Cross Validation}
+cv_tree = cv.tree(tree_model)
+summary(cv_tree)
+plot(cv_tree$size, cv_tree$dev, type = 'p')
+```
+
+```{r Pruned Tree}
+#The Standard Dev of 3 leafs seems to be the lowest from the Size to SDev graph above. Lets prune the tree to have 3 leaves.
+
+tree_prune3 <- prune.tree(tree_model, best = 3)
+plot(tree_prune3)
+text(tree_prune3)
+title('Pruned Tree with 3 leaves')
+summary(tree_prune3)
+```
+The 'Residual mean deviance' for 3 terminal nodes is 76460. This is much higher than the tree with 7 nodes, but the previous model may be overfitted. Lets predict the Crime values using the pruned tree. Once we have predictions, lets hand calculate a R2 squared value to see how great our pruned tree model is. 
+```{r Predict with Pruned}
+tree_prune3.predict <- predict(tree_prune3, data = data2[,1:15])
+
+tree_prune3.predict
+#In order to find the R2 value, we need to use a formula:
+# 1 - (Residual Sum of Squares)/(Total Sum of Squares)
+# 
+RSS = sum((tree_prune3.predict - data2[,16])^2)
+TSS = sum((data2[,16] - mean(data2[,16]))^2)
+R2 = 1 - RSS/TSS
+R2
+
+
+```
+Our R2 is 0.511, which isn't great. We can visually see that most of the predictions don't really make much sense as with 3 leafs nodes, we can only have a very small number of possible results. Although we thought having 7 leaves resulting in overfitting, it seems to be better fitting than our pruned model. Next, lets try to create a Random Forest model. 
+
+```{r Random Forest}
+rf = randomForest(Crime ~., data = data2)
+rf.predict <- predict(rf, data = data2[,1:15])
+RSS_rf = sum((rf.predict - data2[,16])^2)
+R2_rf = 1 - RSS_rf/TSS
+R2_rf
+```
+The R2 for our Random Forest is .4065. This is worse than our pruned tree model. Lets try to create another Random Forest model with different parameters.
+
+```{r Random Forest tuned}
+#using the predictors from the pruned tree, and adding Wealth. 
+rf_tuned = randomForest(Crime ~ Wealth + Po1 + NW, data = data2)
+rf_tuned.predict <- predict(rf_tuned, data = data2[,1:15])
+RSS_rf_tuned = sum((rf_tuned.predict - data2[,16])^2)
+R2_rf_tuned = 1 - RSS_rf_tuned/TSS
+R2_rf_tuned
+
+#Correlation between Wealth and Po1 predictors
+cor(data2[,12],data2[,16])
+```
+While there could be many combinations of parameters that could yield a better model, I decided to take 3 predictors: Wealth, Po1 and NW. The pruned tree model had created a tree using Po1 and Nw, and I added Wealth because I initally assumed, prior to delving into the data that Wealth (median value of transferable assets or family income) would be heavily correlated with the amount of Crime with an area. By using these 3 predictors, the RandomForest tuned model returns an R2 value of 0.42, which is slightly better than the R2_rf model. However, it still isn't a great model to use. 
+
+##Question 10.2
+
+Describe a situation or problem from your job, everyday life, current events, etc., for which a logistic 
+regression model would be appropriate. List some (up to 5) predictors that you might use. 
+
+A logistic regression model is great if the prediction needs be a binary or a probabilistic result. In my previous job, I worked at hedgefund that owned a portfolio of terms loans of publicly traded companies. Many of these loans were high yield or distressed, so during times of recessions, many of these positions could default on their payments or the loan itself. We could have used a logistic regression model to help determine the probability of default. If we could obtain history on debt payments of companies with similar size and industry, we could see what factor are present during scheduled payments and defaults. some factors we could have used are: Cash/Debt Ratio, Annual Free Cash Flow, and Public Credit Rating. 
+
+##Question 10.3  
+  
+1. Using the GermanCredit data set germancredit.txt from http://archive.ics.uci.edu/ml/machine-
+learning-databases/statlog/german / (description at 
+http://archive.ics.uci.edu/ml/datasets/Statlog+%28German+Credit+Data%29 ), use logistic 
+regression to find a good predictive model for whether credit applicants are good credit risks or 
+not.  Show your model (factors used and their coefficients), the software output, and the quality 
+of fit.  You can use the glm function in R. To get a logistic regression (logit) model on data where 
+the response is either zero or one, use family=binomial(link=”logit”) in your glm function call.  
+  
+2. Because the model gives a result between 0 and 1, it requires setting a threshold probability to 
+separate between “good” and “bad” answers.  In this data set, they estimate that incorrectly 
+identifying a bad customer as good, is 5 times worse than incorrectly classifying a good customer 
+as bad.  Determine a good threshold probability based on your model.  
+
+```{r}
+data_credit <- read.delim('germancredit.txt', header = FALSE, sep = ' ')
+head(data_credit)
+#replace 1 and 2 with 0 and 1 for V21
+data_credit$V21[data_credit$V21==1] <- 0
+data_credit$V21[data_credit$V21==2] <- 1
+
+#Lets split the data into train and test
+data_credit <- data_credit[complete.cases(data_credit),]
+dt = sort(sample(nrow(data_credit), nrow(data_credit)*.7))
+train<-data_credit[dt,]
+test<-data_credit[-dt,]
+
+#Create the model and show its summary
+log_model <- glm(V21 ~., data = train, family = binomial(link = 'logit'))
+plot(log_model)
+summary(log_model)
+
+log_predict <- predict(log_model, newdata =  test[,1:20], type = 'response')
+
+log_conMat <- confusionMatrix(reference = as.factor(test$V21), data = as.factor(round(log_predict)))
+log_conMat
+
+#Threshold Value = .5
+
+score = 0*(log_conMat$table[1]/300)+5*(log_conMat$table[2]/300)+1*(log_conMat$table[3]/300)+0*(log_conMat$table[4]/300)
+score
+```
+Here are some of the results of from the Confusion Matrix:
+The Accuracy of the Model is .7533
+
+Sensitivity : 0.7731 (TP/(TP+FN))     
+Specificity : 0.6774 (TN/(TN+FP))
+0&0 --> 184 = True Positive(TP)
+0&1 --> 54 = False Positive(FP)
+1&0 --> 20 = False Negative(FN)
+0&0 --> 42 = True Negative(TN)
+
+However, it is 5x worse to classifying a bad customer as good than classifying a good customer as bad. We need to adjust the threshold value to reduce the number of bad customers classified as good (False Positive). Currently, we are rounding the values, any prediction with a .5 value is considered to be classified as good. We should make the good classification more strict - lets use .75. 
+
+In order to compare the current threshold output with the new threshold output, lets give the current Confusion Matrix a score. The confusion matrix with a threshold of .5 has a score of 0.513. The lower the score, the better. 
+
+
+
+
+
+```{r}
+threshold <- 0.75
+t2 <- as.matrix(table(round(log_predict > .75), test$V21))
+t2
+score2 = 0*(t2[1]/300)+5*(t2[2]/300)+1*(t2[3]/300)+0*(t2[4]/300)
+score2
+```
+
+With a threshold of .75, the score decrease to 0.283. Also noticeably, the False Positive only has 1 occurance out of 300.
