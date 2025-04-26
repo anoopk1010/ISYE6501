@@ -1,0 +1,107 @@
+---
+title: "HW2 - Splitting Data and K Means"
+output: pdf_document
+date: "2023-01-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 60), tidy = TRUE,echo = TRUE)
+set.seed(1)
+#tinytex::install_tinytex()
+library(formatR)
+library(tinytex)
+```
+
+## Question 3.1
+
+I am creating Training, Validation and Testing data from the "credit_card_data-headers.txt" data set. I decided to split the data into 60% Training, 20% Validation, and 20% Testing. 
+
+```{r}
+#Question 3.1
+setwd('C:\\Users\\anoop\\OneDrive\\Documents\\GA Analytics\\ISYE6501\\Homework 2')
+data <- read.delim('data 3.1\\credit_card_data-headers.txt', header = TRUE)
+
+#Splitting data into 60% training and 40% non training
+dt <- sort(sample(nrow(data),nrow(data)*.6))
+train <- data[dt,]
+nontrain <- data[-dt,]
+
+#Splitting nontraining data into validation and test data (can use nontrain as test data is validation isn't needed)
+dt2 <- sort(sample(nrow(nontrain),nrow(nontrain)*.5))
+val <- nontrain[dt2,]
+test <- nontrain[-dt2,]
+
+```
+
+```{r}
+library(kknn)
+acc = rep(0,29)
+#Training KNN Model with different K values
+for (k in 1:30)
+{
+  knn_model <- kknn(R1~.,train,val, k = k, scale = TRUE)
+  pred <- as.integer(fitted(knn_model)+0.5)
+  acc[k] = sum(pred == val$R1)/nrow(val)
+  
+}
+acc
+cat("The K Value with the Highest Accuracy: ", which.max(acc), " with an accuracy of (%): ", max(acc))
+
+#Testing accuracy using test data from model chosen from above
+knn_model <- kknn(R1~.,train, test, k=which.max(acc), scale = TRUE)
+pred <- as.integer(fitted(knn_model)+0.5)
+cat("The accuracy using the test data is: ", sum(pred == test$R1)/nrow(test))
+```
+
+## Question 4.1
+Describe a situation or problem from your job, everyday life, current events, etc., for which a clustering 
+model would be appropriate. List some (up to 5) predictors that you might use. 
+
+```{r}
+# My team at work needs to determine what user-created data needs to be deleted from our databases as we are nearing storage capacity. As users are creating data on the daily, we are not able to easily identify which data is needed to be deleted unless we ask each individual user (there are 1000+ employees creating data on the daily). I could use a Clustering Model to help  group which data could be targeted for deletion rather than blindly asking users if their data can be removed. Some factors I could consider are: Age of Creation for Data, Date of Data last accessed, Frequency of Access, and Size of the Data
+```
+
+
+## Question 4.2
+```{r}
+#R has the Iris dataset, so there isn't any need to read the data file.
+data2 <- iris
+
+library(ggplot2)
+#install.packages("ClusterR")
+library(ClusterR)
+
+#By comparing different predictors in scatter plot graphs, it looks like Petal.Length and Petal.Width are great predictors for clustering. It also looks like 3 clusters would be perfect for K Means
+ggplot(data2, aes(Petal.Length, Petal.Width)) + geom_point(aes(col=Species), size = 4)
+ggplot(data2, aes(Sepal.Length, Sepal.Width)) + geom_point(aes(col=Species), size = 4)
+ggplot(data2, aes(Petal.Length, Sepal.Length)) + geom_point(aes(col=Species), size = 4)
+ggplot(data2, aes(Petal.Width, Sepal.Width)) + geom_point(aes(col=Species), size = 4)
+
+
+tot_withinss = rep(0,9)
+for (i in 1:10)
+{
+  # using Petal Length and Width for Predictors
+  model_km <- kmeans(data2[,3:4], centers = i, nstart = 25) 
+  
+  #tot.withinss -> Total within-cluster sum of squares
+  tot_withinss[i] = model_km$tot.withinss  
+}
+tot_withinss
+
+# Plotting the K Values against the Sum of Squares (tot.withinss)
+plot(seq(1,10,1), tot_withinss, type = 'b', main = 'Sum of Squares vs # of K Values',
+     xlab = 'K Values', ylab = 'Sum of Squares', ylim = c(0,600))
+axis(side = 1, at = seq(1,10,1))
+axis(side = 2, at = seq(0,900,100))
+#While the plots above indicate that the ideal cluster value should be 3, the Sum of Square vs # of K Values plot also support for the model to have 3 clusters. 
+
+model_km2 <- kmeans(data2[,3:4], centers = 3, nstart = 25)
+acc_table <- table(model_km2$cluster, data2$Species)
+acc_table
+model_km2
+
+# Using 3 Centers and Petal Length and Width as predictors, the model is able to accurately (Accuracy of 94.3%) categorize the flowers.  
+```
+
+
